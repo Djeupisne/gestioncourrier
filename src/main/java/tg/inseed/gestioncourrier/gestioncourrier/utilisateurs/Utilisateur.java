@@ -1,6 +1,7 @@
 package tg.inseed.gestioncourrier.gestioncourrier.utilisateurs;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -10,122 +11,179 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
 import tg.inseed.gestioncourrier.gestioncourrier.affectation.Affectation;
 import tg.inseed.gestioncourrier.gestioncourrier.archive.Archive;
 import tg.inseed.gestioncourrier.gestioncourrier.decharge.Decharge;
 import tg.inseed.gestioncourrier.gestioncourrier.direction.Direction;
 import tg.inseed.gestioncourrier.gestioncourrier.journalisation.Journalisation;
-
 import tg.inseed.gestioncourrier.gestioncourrier.session.Session;
 
-
-
-/**
- * Classe représentant un utilisateur du système de gestion des courriers
- * 
- * @author KENKOU Marê Dave Christian
- * @version 1.0
- * @since 10/2025
- */
 @Entity
 @Getter
 @Setter
 @Table(name = "utilisateur")
-public class Utilisateur {
+public class Utilisateur implements UserDetails {
 
-    /**
-     * Identifiant unique de l'utilisateur
-     */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id_utilisateur")
     @JsonProperty("id_utilisateur")
     private Long idUtilisateur;
 
-    /**
-     * Nom de l'utilisateur
-     * Exemple : KENKOU
-     */
     @Column(name = "nom_utilisateur", nullable = false, length = 50)
     @JsonProperty("nom_utilisateur")
     private String nomUtilisateur;
 
-    /**
-     * Prénom de l'utilisateur
-     * Exemple : Marê Dave
-     */
     @Column(name = "prenom_utilisateur", nullable = false, length = 75)
     @JsonProperty("prenom_utilisateur")
     private String prenomUtilisateur;
 
-    /**
-     * Adresse email de l'utilisateur ou encore son identifiant de connexion
-     * Exemple : mare.christian@inseed.tg
-     */
     @Column(name = "email_utilisateur", nullable = false, length = 100, unique = true)
     @JsonProperty("email_utilisateur")
     private String emailUtilisateur;
 
-    /**
-     * Mot de passe de l'identifiant de connexion de l'utilisateur
-     * Exemple : mdp1234
-     */
-    
     @Column(name = "mot_de_passe", nullable = false, length = 100)
-    @JsonProperty("mot_de_passe" )
+    @JsonProperty("mot_de_passe")
     private String motDePasse;
 
-    /**
-     * Rôle de l'utilisateur dans le système
-     * Exemple : DG, Agent, Secrétaire
-     */
+    // Changement important : utilisation de l'enum pour le rôle
+    @Enumerated(EnumType.STRING)
     @Column(name = "role_utilisateur", nullable = false, length = 30)
     @JsonProperty("role_utilisateur")
-    private String role;
+    private RoleUtilisateur role;
 
-     /**
-     * Liste des journalisations associées à cet utilisateur
-     * Relation OneToMany vers Journalisation
-     */
-   @OneToMany(mappedBy = "utilisateur")
-   @JsonIgnore
-   private Set<Journalisation> journalisation = new HashSet<>();
+    // Relation avec l'entité Role (si vous voulez garder les deux)
+    @ManyToOne
+    @JoinColumn(name = "id_role")
+    @JsonIgnore
+    private tg.inseed.gestioncourrier.gestioncourrier.role.Role roleEntity;
 
-   @OneToMany(mappedBy = "utilisateur")
-   @JsonIgnore
-   private Set<Session> session = new HashSet<>();
-   
+    // Champs pour la sécurité
+    @Column(name = "actif", nullable = false)
+    private boolean actif = true;
 
-   @OneToMany(mappedBy = "utilisateur")
-   @JsonIgnore
-   private List <Decharge> decharge = new ArrayList<>();
+    @Column(name = "verrouille", nullable = false)
+    private boolean verrouille = false;
 
-   @OneToMany(mappedBy = "utilisateur")
-   @JsonIgnore
-   private List <Affectation> affectation = new ArrayList<>();
+    @Column(name = "tentatives_echec", nullable = false)
+    private int tentativesEchec = 0;
 
-   @OneToMany(mappedBy = "utilisateur")
-   @JsonIgnore
-   private List <Archive> archive = new ArrayList<>();
+    @Transient
+    private final int MAX_TENTATIVES = 3;
 
-   @OneToMany(mappedBy="utilisateur")
-   @JsonIgnore
-   private List <Direction> direction = new ArrayList<>();
-        
-    /**
-     * Constructeur sans argument requis par JPA
-     */
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private Set<Journalisation> journalisation = new HashSet<>();
+
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private Set<Session> session = new HashSet<>();
+
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private List<Decharge> decharge = new ArrayList<>();
+
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private List<Affectation> affectation = new ArrayList<>();
+
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private List<Archive> archive = new ArrayList<>();
+
+    @OneToMany(mappedBy = "utilisateur")
+    @JsonIgnore
+    private List<Direction> direction = new ArrayList<>();
+
     public Utilisateur() {
     }
 
-   
+    // Méthodes pour la gestion de la sécurité
+    public void incrementerTentativesEchec() {
+        this.tentativesEchec++;
+        if (this.tentativesEchec >= MAX_TENTATIVES) {
+            this.verrouille = true;
+        }
+    }
+
+    public void reinitialiserTentativesEchec() {
+        this.tentativesEchec = 0;
+        this.verrouille = false;
+    }
+
+    // Implémentation des méthodes de UserDetails
+    @Override
+    @JsonIgnore
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority(this.role.getAuthority()));
+    }
+
+    @Override
+    @JsonIgnore
+    public String getPassword() {
+        return this.motDePasse;
+    }
+
+    @Override
+    @JsonIgnore
+    public String getUsername() {
+        return this.emailUtilisateur;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isAccountNonLocked() {
+        return !this.verrouille;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isEnabled() {
+        return this.actif;
+    }
+
+    // Getters supplémentaires pour compatibilité
+    public boolean getVerrouille() {
+        return this.verrouille;
+    }
+
+    public boolean getActif() {
+        return this.actif;
+    }
+
+    // Getter pour le rôle en string (compatibilité)
+    public String getRoleString() {
+        return this.role.getCode();
+    }
 
     @Override
     public int hashCode() {
@@ -152,12 +210,10 @@ public class Utilisateur {
         return true;
     }
 
-@Override
-public String toString() {
-    return "Utilisateur [idUtilisateur=" + idUtilisateur + ", nomUtilisateur=" + nomUtilisateur
-            + ", prenomUtilisateur=" + prenomUtilisateur + ", emailUtilisateur=" + emailUtilisateur
-            + ", motDePasse=****" + ", role=" + role + "]";
-}
-
-    
+    @Override
+    public String toString() {
+        return "Utilisateur [idUtilisateur=" + idUtilisateur + ", nomUtilisateur=" + nomUtilisateur
+                + ", prenomUtilisateur=" + prenomUtilisateur + ", emailUtilisateur=" + emailUtilisateur
+                + ", role=" + role + "]";
+    }
 }
